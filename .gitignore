@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Environment
+.env
+*.log
+
+# Three.js vendor libs (downloaded via Makefile setup)
+frontend/lib/
+
+# Textures placeholder
+frontend/assets/textures/
+
+# Shaders placeholder
+frontend/shaders/

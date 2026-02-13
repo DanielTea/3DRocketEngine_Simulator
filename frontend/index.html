@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Rocket Engine Simulator</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="app">
+        <!-- 3D Viewport -->
+        <div id="viewport">
+            <canvas id="three-canvas"></canvas>
+            <div id="viewport-hud">
+                <div id="viz-mode-buttons">
+                    <button class="viz-btn active" data-mode="normal">Normal</button>
+                    <button class="viz-btn" data-mode="heatmap">Heat Map</button>
+                    <button class="viz-btn" data-mode="stress">Stress</button>
+                    <button class="viz-btn" data-mode="flow">Flow</button>
+                    <button class="viz-btn" data-mode="cooling">Cooling</button>
+                </div>
+                <div id="camera-buttons">
+                    <button class="cam-btn" data-view="iso">Iso</button>
+                    <button class="cam-btn" data-view="side">Side</button>
+                    <button class="cam-btn" data-view="front">Front</button>
+                    <button class="cam-btn" data-view="section">Section</button>
+                </div>
+            </div>
+            <canvas id="legend-canvas" width="60" height="300"></canvas>
+            <div id="section-slider-container" style="display:none;">
+                <label>Section Position</label>
+                <input type="range" id="section-slider" min="0" max="199" value="100" step="1">
+                <span id="section-slider-val">50%</span>
+            </div>
+        </div>
+
+        <!-- Right Sidebar -->
+        <div id="sidebar">
+            <h2>Rocket Engine Simulator</h2>
+
+            <!-- Connection Status -->
+            <div id="connection-status" class="status-disconnected">Disconnected</div>
+
+            <!-- Material Selection -->
+            <div class="panel">
+                <h3>Material</h3>
+                <select id="material-select"></select>
+                <div id="material-card" class="material-card"></div>
+            </div>
+
+            <!-- Geometry Parameters -->
+            <div class="panel">
+                <h3>Engine Geometry</h3>
+                <div id="geometry-sliders"></div>
+            </div>
+
+            <!-- Cooling System -->
+            <div class="panel">
+                <h3>Regenerative Cooling</h3>
+                <div id="cooling-controls"></div>
+            </div>
+
+            <!-- Propellant Configuration -->
+            <div class="panel">
+                <h3>Propellant</h3>
+                <div id="propellant-inputs"></div>
+            </div>
+
+            <!-- Simulation Controls -->
+            <div class="panel">
+                <h3>Simulation</h3>
+                <div class="button-row">
+                    <button id="btn-start-sim" class="btn btn-primary">Run Simulation</button>
+                    <button id="btn-stop-sim" class="btn btn-danger" disabled>Stop</button>
+                </div>
+                <div id="preset-row">
+                    <label>Presets:</label>
+                    <select id="preset-select">
+                        <option value="">-- Select Preset --</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- 3D Print Export -->
+            <div class="panel">
+                <h3>3D Print Export</h3>
+                <div class="input-group" style="margin-bottom:8px;">
+                    <label><span>Export Mode</span></label>
+                    <select id="stl-mode-select" style="width:100%; padding:4px 8px; background:var(--bg-input); color:var(--text-primary); border:1px solid var(--border); border-radius:4px; font-size:12px;">
+                        <option value="simple">Simple (Solid Wall)</option>
+                        <option value="full">Full (With Cooling Channels)</option>
+                    </select>
+                </div>
+                <div class="slider-group" style="margin-bottom:6px;">
+                    <label><span>Resolution</span><span id="stl-res-val">128 segments</span></label>
+                    <input type="range" id="stl-resolution" min="32" max="256" step="16" value="128">
+                </div>
+                <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:12px; color:var(--text-secondary); margin-bottom:8px;">
+                    <input type="checkbox" id="stl-injector" checked style="accent-color:var(--accent);">
+                    <span>Include Injector Face</span>
+                </label>
+                <button id="btn-export-stl" class="btn btn-primary" style="width:100%;">Download STL</button>
+                <div id="stl-status" style="margin-top:6px; font-size:11px; color:var(--text-secondary);"></div>
+            </div>
+
+            <!-- Performance Readout -->
+            <div class="panel" id="performance-panel">
+                <h3>Performance</h3>
+                <div id="performance-readout">
+                    <div class="readout-row"><span>Thrust:</span><span id="val-thrust">--</span></div>
+                    <div class="readout-row"><span>Isp:</span><span id="val-isp">--</span></div>
+                    <div class="readout-row"><span>Mass Flow:</span><span id="val-mdot">--</span></div>
+                    <div class="readout-row"><span>Exit Velocity:</span><span id="val-ve">--</span></div>
+                    <div class="readout-row"><span>Exit Mach:</span><span id="val-mach">--</span></div>
+                    <div class="readout-row"><span>Thrust/Weight:</span><span id="val-tw">--</span></div>
+                    <div class="readout-row"><span>Max Wall Temp:</span><span id="val-twall">--</span></div>
+                    <div class="readout-row"><span>Min Safety Factor:</span><span id="val-sf">--</span></div>
+                    <div class="readout-row"><span>Total Mass:</span><span id="val-mass">--</span></div>
+                </div>
+                <!-- Cooling readout -->
+                <div id="cooling-readout" style="margin-top: 6px; border-top: 1px solid rgba(42,58,92,0.5); padding-top: 6px;">
+                    <div class="readout-row"><span>Cooled Wall Temp:</span><span id="val-cool-twall">--</span></div>
+                    <div class="readout-row"><span>Coolant dP:</span><span id="val-cool-dp">--</span></div>
+                    <div class="readout-row"><span>Coolant Exit T:</span><span id="val-cool-texit">--</span></div>
+                </div>
+                <div id="warnings-box"></div>
+            </div>
+        </div>
+
+        <!-- Bottom Panel: Evolution -->
+        <div id="bottom-panel">
+            <div id="bottom-toggle" title="Toggle Evolution Panel">Evolution</div>
+            <div id="bottom-content">
+                <div id="evolution-controls">
+                    <h3>Evolutionary Co-Optimization</h3>
+                    <div class="evo-params">
+                        <label>Population: <input type="number" id="evo-pop-size" value="50" min="10" max="500"></label>
+                        <label>Generations: <input type="number" id="evo-generations" value="100" min="5" max="1000"></label>
+                        <label>Crossover: <input type="range" id="evo-cx" min="0" max="100" value="70"><span id="evo-cx-val">0.70</span></label>
+                        <label>Mutation: <input type="range" id="evo-mut" min="0" max="100" value="30"><span id="evo-mut-val">0.30</span></label>
+                    </div>
+                    <div class="fitness-weights">
+                        <h4>Fitness Weights (7 Objectives)</h4>
+                        <div class="weight-slider">
+                            <label>Thrust/Weight</label>
+                            <input type="range" id="w-tw" min="0" max="100" value="25">
+                            <span class="w-val">0.25</span>
+                        </div>
+                        <div class="weight-slider">
+                            <label>Thermal</label>
+                            <input type="range" id="w-thermal" min="0" max="100" value="20">
+                            <span class="w-val">0.20</span>
+                        </div>
+                        <div class="weight-slider">
+                            <label>Efficiency</label>
+                            <input type="range" id="w-eff" min="0" max="100" value="20">
+                            <span class="w-val">0.20</span>
+                        </div>
+                        <div class="weight-slider">
+                            <label>Structural</label>
+                            <input type="range" id="w-struct" min="0" max="100" value="15">
+                            <span class="w-val">0.15</span>
+                        </div>
+                        <div class="weight-slider">
+                            <label>Cost</label>
+                            <input type="range" id="w-cost" min="0" max="100" value="5">
+                            <span class="w-val">0.05</span>
+                        </div>
+                        <div class="weight-slider">
+                            <label>Cooling Eff.</label>
+                            <input type="range" id="w-cooling" min="0" max="100" value="10">
+                            <span class="w-val">0.10</span>
+                        </div>
+                        <div class="weight-slider">
+                            <label>Coolant dP</label>
+                            <input type="range" id="w-pressure" min="0" max="100" value="5">
+                            <span class="w-val">0.05</span>
+                        </div>
+                    </div>
+                    <div class="button-row">
+                        <button id="btn-start-evo" class="btn btn-primary">Start Evolution</button>
+                        <button id="btn-stop-evo" class="btn btn-danger" disabled>Stop</button>
+                        <button id="btn-load-best" class="btn btn-secondary" disabled>Load Best Design</button>
+                    </div>
+                    <div id="evo-status"></div>
+                </div>
+                <div id="evolution-chart-container">
+                    <canvas id="evolution-chart" width="600" height="200"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "./lib/three.module.min.js",
+            "three/addons/controls/OrbitControls": "./lib/OrbitControls.js"
+        }
+    }
+    </script>
+    <script type="module" src="js/main.js"></script>
+</body>
+</html>
