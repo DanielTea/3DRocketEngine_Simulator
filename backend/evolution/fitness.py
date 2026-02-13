@@ -16,7 +16,8 @@ class FitnessEvaluator:
                  chamber_temperature_K: float, chamber_pressure_Pa: float,
                  ambient_pressure_Pa: float = 101325.0,
                  cooling_enabled: bool = True,
-                 coolant_type: str = "rp1"):
+                 coolant_type: str = "rp1",
+                 injector_config=None):
         self.weights = weights
         self.material = material
         self.gamma = gamma
@@ -26,6 +27,7 @@ class FitnessEvaluator:
         self.P_ambient = ambient_pressure_Pa
         self.cooling_enabled = cooling_enabled
         self.coolant_type = coolant_type
+        self.injector_config = injector_config
 
     def evaluate(self, genome: list) -> dict:
         """Evaluate a genome and return fitness scores.
@@ -57,6 +59,22 @@ class FitnessEvaluator:
                 coolant_mdot = genome[20]
                 rib_thickness_factor = genome[21]
 
+            # Extract injector params from genes 25-28 (if present)
+            injector_cfg = self.injector_config
+            if len(genome) >= 29 and injector_cfg and getattr(injector_cfg, 'enabled', False):
+                from backend.api.schemas import InjectorConfig
+                injector_cfg = InjectorConfig(
+                    enabled=True,
+                    n_rings=max(1, int(round(genome[25]))),
+                    elements_per_ring_base=max(3, int(round(genome[26]))),
+                    fuel_orifice_diameter=genome[27],
+                    ox_orifice_diameter=genome[28],
+                    mixture_ratio=injector_cfg.mixture_ratio,
+                    discharge_coefficient=injector_cfg.discharge_coefficient,
+                    first_ring_fraction=injector_cfg.first_ring_fraction,
+                    ring_spacing_fraction=injector_cfg.ring_spacing_fraction,
+                )
+
             sim = SimulationEngine(
                 engine=engine, material=self.material,
                 gamma=self.gamma, molecular_weight=self.molecular_weight,
@@ -68,6 +86,7 @@ class FitnessEvaluator:
                 coolant_mdot=coolant_mdot,
                 coolant_type=self.coolant_type,
                 rib_thickness_factor=rib_thickness_factor,
+                injector_config=injector_cfg,
             )
 
             result = sim.run_tick()
@@ -118,6 +137,17 @@ class FitnessEvaluator:
                 # Normalize: 0 Pa = perfect (1.0), 3 MPa = bad (0.0)
                 score_pressure_drop = max(0.0, 1.0 - dp / 3_000_000.0)
 
+            # 8. Injection quality (atomization + stability + momentum)
+            score_injection = 0.5  # default if injector disabled
+            injector_data = result.get("injector", {})
+            if injector_data:
+                atom = injector_data.get("atomization_quality", 0.5)
+                stab = injector_data.get("stability_margin", 0.5)
+                mom = injector_data.get("momentum_ratio", 1.0)
+                # Momentum ratio score: ideal = 1.0, penalize deviation
+                mom_score = max(0.0, 1.0 - abs(mom - 1.0))
+                score_injection = 0.4 * atom + 0.4 * stab + 0.2 * mom_score
+
             scores = {
                 "thrust_to_weight": score_tw,
                 "thermal_survival": score_thermal,
@@ -126,6 +156,7 @@ class FitnessEvaluator:
                 "cost_efficiency": score_cost,
                 "cooling_effectiveness": score_cooling,
                 "coolant_pressure_drop": score_pressure_drop,
+                "injection_quality": score_injection,
             }
 
             # Weighted total
@@ -148,6 +179,7 @@ class FitnessEvaluator:
                     "thrust_to_weight", "thermal_survival", "efficiency",
                     "structural_integrity", "cost_efficiency",
                     "cooling_effectiveness", "coolant_pressure_drop",
+                    "injection_quality",
                 ]},
                 "performance": {},
             }

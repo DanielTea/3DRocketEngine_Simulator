@@ -4,7 +4,7 @@ import json
 import asyncio
 import traceback
 from fastapi import WebSocket, WebSocketDisconnect
-from backend.api.schemas import SimulationConfig, GAConfig, UpdateParams, CoolingConfig
+from backend.api.schemas import SimulationConfig, GAConfig, UpdateParams, CoolingConfig, InjectorConfig
 from backend.geometry.parametric_engine import ParametricEngine
 from backend.geometry.mesh_export import export_for_frontend
 from backend.physics.simulation_engine import SimulationEngine
@@ -114,7 +114,12 @@ async def handle_start_simulation(websocket: WebSocket, session: SimulationSessi
     """Start or restart the physics simulation loop."""
     session.stop_simulation()
 
+    # Debug: log injector config received
+    inj_payload = payload.get("injector", {})
+    print(f"[WS] start_simulation injector payload: {inj_payload}")
+
     config = SimulationConfig(**payload)
+    print(f"[WS] parsed injector config: enabled={config.injector.enabled}, n_rings={config.injector.n_rings}")
 
     engine = ParametricEngine.from_dict(config.geometry.model_dump())
     material = material_db.get(config.material_id)
@@ -136,10 +141,14 @@ async def handle_start_simulation(websocket: WebSocket, session: SimulationSessi
         coolant_inlet_temp=config.cooling.coolant_inlet_temp,
         coolant_inlet_pressure=config.cooling.coolant_inlet_pressure,
         rib_thickness_factor=config.cooling.rib_thickness_factor,
+        injector_config=config.injector,
     )
+    session.injector_config = config.injector
 
     # Send initial mesh
-    mesh_data = export_for_frontend(engine)
+    mesh_data = export_for_frontend(engine, injector_config=config.injector)
+    n_orif = len(mesh_data.get("injector_orifices", []))
+    print(f"[WS] mesh_update sent: has injector_orifices={n_orif}")
     await manager.send_json(websocket, {"type": "mesh_update", "payload": mesh_data})
 
     # Start simulation loop
@@ -186,6 +195,10 @@ async def handle_update_params(websocket: WebSocket, session: SimulationSession,
     if update.cooling is not None:
         cooling_geom = cooling_config_to_geom(update.cooling)
 
+    injector_cfg = update.injector if update.injector is not None else None
+    if injector_cfg is not None:
+        session.injector_config = injector_cfg
+
     session.sim_engine.update_config(
         engine=new_engine,
         material=new_material,
@@ -199,11 +212,14 @@ async def handle_update_params(websocket: WebSocket, session: SimulationSession,
         coolant_mdot=update.cooling.coolant_mdot if update.cooling else None,
         coolant_type=update.cooling.coolant_type if update.cooling else None,
         rib_thickness_factor=update.cooling.rib_thickness_factor if update.cooling else None,
+        injector_config=injector_cfg,
     )
 
-    # If geometry changed, send new mesh
-    if new_engine is not None:
-        mesh_data = export_for_frontend(new_engine)
+    # If geometry or injector changed, send new mesh
+    inj_cfg = getattr(session, 'injector_config', None)
+    if new_engine is not None or injector_cfg is not None:
+        engine_to_use = new_engine or session.sim_engine.engine
+        mesh_data = export_for_frontend(engine_to_use, injector_config=inj_cfg)
         await manager.send_json(websocket, {"type": "mesh_update", "payload": mesh_data})
 
 
@@ -216,7 +232,8 @@ async def handle_request_mesh(websocket: WebSocket, session: SimulationSession):
         })
         return
 
-    mesh_data = export_for_frontend(session.sim_engine.engine)
+    inj_cfg = getattr(session, 'injector_config', None)
+    mesh_data = export_for_frontend(session.sim_engine.engine, injector_config=inj_cfg)
     await manager.send_json(websocket, {"type": "mesh_update", "payload": mesh_data})
 
 
@@ -235,6 +252,7 @@ async def handle_start_evolution(websocket: WebSocket, session: SimulationSessio
             from backend.evolution.fitness import FitnessEvaluator
 
             cooling_cfg = ga_config.cooling if hasattr(ga_config, 'cooling') else CoolingConfig()
+            injector_cfg = ga_config.injector if hasattr(ga_config, 'injector') else InjectorConfig()
 
             evaluator = FitnessEvaluator(
                 weights=ga_config.fitness_weights,
@@ -246,6 +264,7 @@ async def handle_start_evolution(websocket: WebSocket, session: SimulationSessio
                 ambient_pressure_Pa=ga_config.ambient_pressure_Pa,
                 cooling_enabled=cooling_cfg.enabled,
                 coolant_type=cooling_cfg.coolant_type,
+                injector_config=injector_cfg,
             )
 
             async def on_generation(snapshot):

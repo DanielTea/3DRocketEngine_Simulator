@@ -66,6 +66,12 @@
                 <div id="propellant-inputs"></div>
             </div>
 
+            <!-- Injector Configuration -->
+            <div class="panel">
+                <h3>Injector</h3>
+                <div id="injector-controls"></div>
+            </div>
+
             <!-- Simulation Controls -->
             <div class="panel">
                 <h3>Simulation</h3>
@@ -99,6 +105,10 @@
                     <input type="checkbox" id="stl-injector" checked style="accent-color:var(--accent);">
                     <span>Include Injector Face</span>
                 </label>
+                <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:12px; color:var(--text-secondary); margin-bottom:8px;">
+                    <input type="checkbox" id="stl-orifices" checked style="accent-color:var(--accent);">
+                    <span>Include Orifice Holes</span>
+                </label>
                 <button id="btn-export-stl" class="btn btn-primary" style="width:100%;">Download STL</button>
                 <div id="stl-status" style="margin-top:6px; font-size:11px; color:var(--text-secondary);"></div>
             </div>
@@ -123,6 +133,13 @@
                     <div class="readout-row"><span>Coolant dP:</span><span id="val-cool-dp">--</span></div>
                     <div class="readout-row"><span>Coolant Exit T:</span><span id="val-cool-texit">--</span></div>
                 </div>
+                <!-- Injector readout -->
+                <div id="injector-readout" style="margin-top: 6px; border-top: 1px solid rgba(42,58,92,0.5); padding-top: 6px;">
+                    <div class="readout-row"><span>Inj. Fuel dP:</span><span id="val-inj-dpfuel">--</span></div>
+                    <div class="readout-row"><span>Inj. Ox dP:</span><span id="val-inj-dpox">--</span></div>
+                    <div class="readout-row"><span>Atomization:</span><span id="val-inj-quality">--</span></div>
+                    <div class="readout-row"><span>Stability:</span><span id="val-inj-stability">--</span></div>
+                </div>
                 <div id="warnings-box"></div>
             </div>
         </div>
@@ -140,7 +157,7 @@
                         <label>Mutation: <input type="range" id="evo-mut" min="0" max="100" value="30"><span id="evo-mut-val">0.30</span></label>
                     </div>
                     <div class="fitness-weights">
-                        <h4>Fitness Weights (7 Objectives)</h4>
+                        <h4>Fitness Weights (8 Objectives)</h4>
                         <div class="weight-slider">
                             <label>Thrust/Weight</label>
                             <input type="range" id="w-tw" min="0" max="100" value="25">
@@ -175,6 +192,11 @@
                             <label>Coolant dP</label>
                             <input type="range" id="w-pressure" min="0" max="100" value="5">
                             <span class="w-val">0.05</span>
+                        </div>
+                        <div class="weight-slider">
+                            <label>Injection</label>
+                            <input type="range" id="w-injection" min="0" max="100" value="0">
+                            <span class="w-val">0.00</span>
                         </div>
                     </div>
                     <div class="button-row">

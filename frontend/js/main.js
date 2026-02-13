@@ -15,9 +15,11 @@ import { WSClient } from './ws_client.js';
 import { fetchMaterials, fetchPresets, exportSTL } from './rest_client.js';
 import {
     initGeometrySliders, initPropellantInputs, initCoolingControls,
+    initInjectorControls,
     initMaterialSelector, updateMaterialCard,
     updatePerformanceReadout, setGeometryFromConfig, setPropellantFromConfig,
-    setCoolingFromConfig, getGeometry, getPropellant, getCooling,
+    setCoolingFromConfig, setInjectorFromConfig,
+    getGeometry, getPropellant, getCooling, getInjector,
 } from './ui_panels.js';
 import { initEvolutionChart, addGenerationData, clearChart } from './evolution_chart.js';
 
@@ -76,6 +78,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     initGeometrySliders(document.getElementById('geometry-sliders'), onParamChange);
     initPropellantInputs(document.getElementById('propellant-inputs'), onParamChange);
     initCoolingControls(document.getElementById('cooling-controls'), onParamChange);
+    initInjectorControls(document.getElementById('injector-controls'), onParamChange);
 
     // 5. Connect WebSocket
     const wsUrl = `ws://${location.host}/ws`;
@@ -122,9 +125,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         statusEl.textContent = 'Generating STL...';
 
         try {
+            const injector = getInjector();
+            const includeOrifices = document.getElementById('stl-orifices').checked;
             await exportSTL({
                 geometry: getGeometry(),
                 cooling: getCooling(),
+                injector: (includeOrifices && injector.enabled) ? injector : undefined,
                 mode,
                 include_injector: includeInjector,
                 resolution,
@@ -224,6 +230,7 @@ function onParamChange(type, values) {
         if (type === 'geometry') payload.geometry = values;
         if (type === 'propellant') payload.propellant = values;
         if (type === 'cooling') payload.cooling = values;
+        if (type === 'injector') payload.injector = values;
         ws.send('update_params', payload);
     }
 }
@@ -387,11 +394,13 @@ function startSimulation() {
     const geometry = getGeometry();
     const propellant = getPropellant();
     const cooling = getCooling();
+    const injector = getInjector();
 
     ws.send('start_simulation', {
         geometry,
         propellant,
         cooling,
+        injector,
         material_id: currentMaterialId,
         ambient_pressure_Pa: 101325,
     });
@@ -414,6 +423,7 @@ function startEvolution() {
     clearChart();
 
     const cooling = getCooling();
+    const injector = getInjector();
     const fitnessWeights = {
         thrust_to_weight: parseInt(document.getElementById('w-tw').value) / 100,
         thermal_survival: parseInt(document.getElementById('w-thermal').value) / 100,
@@ -422,6 +432,7 @@ function startEvolution() {
         cost_efficiency: parseInt(document.getElementById('w-cost').value) / 100,
         cooling_effectiveness: parseInt(document.getElementById('w-cooling').value) / 100,
         coolant_pressure_drop: parseInt(document.getElementById('w-pressure').value) / 100,
+        injection_quality: parseInt(document.getElementById('w-injection').value) / 100,
     };
 
     ws.send('start_evolution', {
@@ -432,6 +443,7 @@ function startEvolution() {
         fitness_weights: fitnessWeights,
         propellant: getPropellant(),
         cooling,
+        injector,
         material_id: currentMaterialId,
         ambient_pressure_Pa: 101325,
     });
@@ -453,6 +465,31 @@ function loadBestDesign() {
     if (!bestEvoGenome) return;
     setGeometryFromConfig(bestEvoGenome);
 
+    // Apply cooling genes including channel height CPs (genes 22-24)
+    const coolingUpdate = {};
+    if (bestEvoGenome.n_channels !== undefined) coolingUpdate.n_channels = Math.round(bestEvoGenome.n_channels);
+    if (bestEvoGenome.channel_width !== undefined) coolingUpdate.channel_width = bestEvoGenome.channel_width;
+    if (bestEvoGenome.channel_height !== undefined) coolingUpdate.channel_height = bestEvoGenome.channel_height;
+    if (bestEvoGenome.rib_width !== undefined) coolingUpdate.rib_width = bestEvoGenome.rib_width;
+    if (bestEvoGenome.coolant_mdot !== undefined) coolingUpdate.coolant_mdot = bestEvoGenome.coolant_mdot;
+    if (bestEvoGenome.ch_height_cp0 !== undefined) coolingUpdate.ch_height_cp0 = bestEvoGenome.ch_height_cp0;
+    if (bestEvoGenome.ch_height_cp1 !== undefined) coolingUpdate.ch_height_cp1 = bestEvoGenome.ch_height_cp1;
+    if (bestEvoGenome.ch_height_cp2 !== undefined) coolingUpdate.ch_height_cp2 = bestEvoGenome.ch_height_cp2;
+    if (Object.keys(coolingUpdate).length > 0) {
+        setCoolingFromConfig(coolingUpdate);
+    }
+
+    // Apply injector genes if present (genes 25-28)
+    if (bestEvoGenome.inj_n_rings !== undefined) {
+        setInjectorFromConfig({
+            enabled: true,
+            n_rings: Math.round(bestEvoGenome.inj_n_rings),
+            elements_per_ring_base: Math.round(bestEvoGenome.inj_elements_per_ring),
+            fuel_orifice_diameter: bestEvoGenome.inj_fuel_diameter,
+            ox_orifice_diameter: bestEvoGenome.inj_ox_diameter,
+        });
+    }
+
     if (!simRunning) {
         startSimulation();
     }
@@ -462,6 +499,7 @@ function loadPreset(preset) {
     if (preset.geometry) setGeometryFromConfig(preset.geometry);
     if (preset.propellant) setPropellantFromConfig(preset.propellant);
     if (preset.cooling) setCoolingFromConfig(preset.cooling);
+    if (preset.injector) setInjectorFromConfig(preset.injector);
     if (preset.material_id) {
         const select = document.getElementById('material-select');
         select.value = preset.material_id;

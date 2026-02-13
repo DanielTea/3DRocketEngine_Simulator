@@ -1,5 +1,5 @@
 /**
- * UI panel initialization: material selector, geometry sliders, propellant inputs, cooling controls.
+ * UI panel initialization: material selector, geometry sliders, propellant inputs, cooling controls, injector controls.
  */
 import { debounce, formatSI, formatFixed } from './utils.js';
 
@@ -47,9 +47,20 @@ const PROPELLANT_INPUTS = [
     ['chamber_pressure_Pa', 'Chamber Pressure', 100000, 30000000, 50000, 3000000, 'Pa'],
 ];
 
+// Injector controls: [key, label, min, max, step, default, unit]
+const INJECTOR_INPUTS = [
+    ['n_rings', 'Number of Rings', 1, 10, 1, 3, ''],
+    ['elements_per_ring_base', 'Elements/Ring (Base)', 3, 24, 1, 6, ''],
+    ['fuel_orifice_diameter', 'Fuel Orifice Dia.', 0.0005, 0.005, 0.0001, 0.001, 'm'],
+    ['ox_orifice_diameter', 'Ox Orifice Dia.', 0.0005, 0.006, 0.0001, 0.0012, 'm'],
+    ['mixture_ratio', 'Mixture Ratio (O/F)', 1.0, 4.0, 0.1, 2.3, ''],
+    ['discharge_coefficient', 'Discharge Coeff.', 0.4, 0.9, 0.01, 0.65, ''],
+];
+
 let currentGeometry = {};
-let currentCooling = { enabled: true, coolant_type: 'rp1' };
+let currentCooling = { enabled: true, coolant_type: 'rp1', ch_height_cp0: 0.003, ch_height_cp1: 0.003, ch_height_cp2: 0.003 };
 let currentPropellant = {};
+let currentInjector = { enabled: true };
 let onChangeCallback = null;
 
 /**
@@ -190,7 +201,7 @@ export function initCoolingControls(container, onChange) {
     chHeader.className = 'section-header';
     chHeader.innerHTML = `
         <label style="display:flex; align-items:center; gap:8px; cursor:pointer; margin-top:8px;">
-            <input type="checkbox" id="ch-height-variable" style="accent-color:var(--accent);">
+            <input type="checkbox" id="ch-height-variable" checked style="accent-color:var(--accent);">
             <span style="font-size:11px; color:#a0a0b0; text-transform:uppercase; letter-spacing:0.5px;">Variable Channel Height</span>
         </label>
     `;
@@ -199,7 +210,7 @@ export function initCoolingControls(container, onChange) {
     const chToggle = chHeader.querySelector('input');
     const chSliderContainer = document.createElement('div');
     chSliderContainer.id = 'ch-height-sliders';
-    chSliderContainer.style.display = 'none';
+    chSliderContainer.style.display = 'block';
     container.appendChild(chSliderContainer);
 
     chToggle.addEventListener('change', () => {
@@ -284,6 +295,65 @@ export function initPropellantInputs(container, onChange) {
 }
 
 /**
+ * Initialize injector controls.
+ */
+export function initInjectorControls(container, onChange) {
+    container.innerHTML = '';
+
+    // Enable/disable toggle
+    const toggleDiv = document.createElement('div');
+    toggleDiv.className = 'input-group';
+    toggleDiv.innerHTML = `
+        <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+            <input type="checkbox" id="injector-enabled" style="accent-color:var(--accent);">
+            <span>Enable Injector</span>
+        </label>
+    `;
+    container.appendChild(toggleDiv);
+
+    const checkbox = toggleDiv.querySelector('input');
+    checkbox.checked = true; // Start enabled by default
+    const inputsContainer = document.createElement('div');
+    inputsContainer.id = 'injector-inputs-container';
+    inputsContainer.style.display = 'block'; // Visible by default
+    container.appendChild(inputsContainer);
+
+    checkbox.addEventListener('change', () => {
+        currentInjector.enabled = checkbox.checked;
+        inputsContainer.style.display = checkbox.checked ? 'block' : 'none';
+        if (onChange) onChange('injector', currentInjector);
+    });
+
+    // Injector parameter inputs
+    for (const [key, label, min, max, step, def, unit] of INJECTOR_INPUTS) {
+        currentInjector[key] = def;
+
+        const div = document.createElement('div');
+        div.className = 'input-group';
+        div.innerHTML = `
+            <label>
+                <span>${label}</span>
+                <span>${unit}</span>
+            </label>
+            <input type="number" min="${min}" max="${max}" step="${step}" value="${def}" data-key="${key}">
+        `;
+
+        const input = div.querySelector('input');
+        const debouncedChange = debounce(() => {
+            if (onChange) onChange('injector', currentInjector);
+        }, 300);
+
+        input.addEventListener('change', () => {
+            currentInjector[key] = parseFloat(input.value);
+            debouncedChange();
+        });
+
+        inputsContainer.appendChild(div);
+    }
+}
+
+
+/**
  * Initialize material selector dropdown.
  */
 export function initMaterialSelector(selectEl, materials, onChange) {
@@ -353,6 +423,15 @@ export function updatePerformanceReadout(data) {
         setValue('val-cool-twall', formatFixed(cooling.max_wall_temp_K, 0) + ' K');
         setValue('val-cool-dp', formatSI(cooling.coolant_pressure_drop_Pa || 0, 'Pa'));
         setValue('val-cool-texit', formatFixed(cooling.coolant_exit_temp_K || 0, 0) + ' K');
+    }
+
+    // Injector readout
+    const injector = data.injector || {};
+    if (injector.dP_fuel_Pa !== undefined) {
+        setValue('val-inj-dpfuel', formatSI(injector.dP_fuel_Pa, 'Pa') + ` (${formatFixed(injector.dP_fuel_ratio * 100, 1)}%)`);
+        setValue('val-inj-dpox', formatSI(injector.dP_ox_Pa, 'Pa') + ` (${formatFixed(injector.dP_ox_ratio * 100, 1)}%)`);
+        setValue('val-inj-quality', formatFixed(injector.atomization_quality * 100, 1) + '%');
+        setValue('val-inj-stability', formatFixed(injector.stability_margin * 100, 1) + '%');
     }
 
     // Warnings
@@ -427,6 +506,53 @@ export function setCoolingFromConfig(config) {
         } else {
             currentCooling[key] = config[key];
             const input = document.querySelector(`#cooling-controls input[data-key="${key}"]`);
+            if (input) {
+                input.value = config[key];
+                input.dispatchEvent(new Event('input'));
+            }
+        }
+    }
+
+    // Handle variable channel height toggle and slider display
+    const hasVariableHeight = config.ch_height_cp0 !== undefined && config.ch_height_cp0 !== null;
+    const chToggle = document.getElementById('ch-height-variable');
+    const chSliders = document.getElementById('ch-height-sliders');
+    if (chToggle && chSliders) {
+        chToggle.checked = hasVariableHeight;
+        chSliders.style.display = hasVariableHeight ? 'block' : 'none';
+        if (hasVariableHeight) {
+            for (const [key,,,,,, unit, mult] of CHANNEL_HEIGHT_SLIDERS) {
+                if (config[key] !== undefined) {
+                    currentCooling[key] = config[key];
+                    const input = chSliders.querySelector(`input[data-key="${key}"]`);
+                    if (input) {
+                        input.value = config[key];
+                        const valueSpan = input.closest('.slider-group')?.querySelector('.slider-value');
+                        if (valueSpan) valueSpan.textContent = `${formatFixed(config[key] * mult, 1)} ${unit}`;
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Set injector controls from a config object.
+ */
+export function setInjectorFromConfig(config) {
+    if (!config) return;
+    for (const key of Object.keys(config)) {
+        if (key === 'enabled') {
+            currentInjector.enabled = config.enabled;
+            const cb = document.getElementById('injector-enabled');
+            if (cb) {
+                cb.checked = config.enabled;
+                const container = document.getElementById('injector-inputs-container');
+                if (container) container.style.display = config.enabled ? 'block' : 'none';
+            }
+        } else {
+            currentInjector[key] = config[key];
+            const input = document.querySelector(`#injector-controls input[data-key="${key}"]`);
             if (input) input.value = config[key];
         }
     }
@@ -435,3 +561,4 @@ export function setCoolingFromConfig(config) {
 export function getGeometry() { return { ...currentGeometry }; }
 export function getCooling() { return { ...currentCooling }; }
 export function getPropellant() { return { ...currentPropellant }; }
+export function getInjector() { return { ...currentInjector }; }

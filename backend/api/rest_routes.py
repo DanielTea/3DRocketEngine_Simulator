@@ -183,6 +183,7 @@ async def export_stl(request: STLExportRequest):
         mode=request.mode,
         n_circ=request.resolution,
         include_injector=request.include_injector,
+        injector_config=request.injector,
     )
 
     filename = f"rocket_engine_{request.mode}.stl"

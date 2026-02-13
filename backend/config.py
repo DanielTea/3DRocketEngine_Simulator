@@ -59,12 +59,13 @@ class GADefaults:
     elite_fraction: float = 0.05
 
 
-# ── Genome definition: 25 genes total ──
+# ── Genome definition: 29 genes total ──
 # Genes 0-3: shape basics
 # Genes 4-9: wall thickness control points (variable thickness)
 # Genes 10-15: shape refinements
 # Genes 16-21: cooling channel parameters
 # Genes 22-24: channel height axial control points
+# Genes 25-28: injector orifice parameters
 GENOME_BOUNDS = [
     (0.02, 0.30),    # [0]  chamber_diameter (m)
     (0.03, 0.50),    # [1]  chamber_length (m)
@@ -91,6 +92,10 @@ GENOME_BOUNDS = [
     (0.0005, 0.008), # [22] ch_height_cp0 — channel height at chamber end (m)
     (0.0005, 0.008), # [23] ch_height_cp1 — channel height at midpoint (m)
     (0.0005, 0.008), # [24] ch_height_cp2 — channel height at nozzle exit (m)
+    (1.0, 10.0),     # [25] inj_n_rings — number of concentric orifice rings
+    (3.0, 24.0),     # [26] inj_elements_per_ring — base element count (innermost ring)
+    (0.0005, 0.005), # [27] inj_fuel_diameter — fuel orifice diameter (m)
+    (0.0005, 0.006), # [28] inj_ox_diameter — oxidizer orifice diameter (m)
 ]
 
 GENE_NAMES = [
@@ -102,11 +107,14 @@ GENE_NAMES = [
     "n_channels", "channel_width", "channel_height", "rib_width",
     "coolant_mdot", "rib_thickness_factor",
     "ch_height_cp0", "ch_height_cp1", "ch_height_cp2",
+    "inj_n_rings", "inj_elements_per_ring",
+    "inj_fuel_diameter", "inj_ox_diameter",
 ]
 
 # Index ranges for genome slicing
-SHAPE_GENE_INDICES = list(range(0, 16))       # engine shape + wall thickness
+SHAPE_GENE_INDICES = list(range(0, 16))        # engine shape + wall thickness
 COOLING_GENE_INDICES = list(range(16, 25))     # cooling system params (incl. channel height CPs)
+INJECTOR_GENE_INDICES = list(range(25, 29))    # injector orifice params
 
 NUM_PROFILE_STATIONS = 200
 

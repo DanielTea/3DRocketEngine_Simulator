@@ -41,6 +41,19 @@ class CoolingConfig(BaseModel):
     ch_height_cp2: Optional[float] = Field(None, ge=0.0005, le=0.008)
 
 
+class InjectorConfig(BaseModel):
+    enabled: bool = False
+    n_rings: int = Field(3, ge=1, le=10)
+    elements_per_ring_base: int = Field(6, ge=3, le=24)
+    fuel_orifice_diameter: float = Field(0.001, ge=0.0005, le=0.005)
+    ox_orifice_diameter: float = Field(0.0012, ge=0.0005, le=0.006)
+    injection_angle_deg: float = Field(30.0, ge=0.0, le=60.0)
+    first_ring_fraction: float = Field(0.25, ge=0.10, le=0.50)
+    ring_spacing_fraction: float = Field(0.20, ge=0.05, le=0.40)
+    mixture_ratio: float = Field(2.3, ge=1.0, le=4.0)
+    discharge_coefficient: float = Field(0.65, ge=0.4, le=0.9)
+
+
 class PropellantConfig(BaseModel):
     gamma: float = Field(1.25, ge=1.1, le=1.7)
     molecular_weight: float = Field(0.022, ge=0.002, le=0.044)
@@ -52,6 +65,7 @@ class SimulationConfig(BaseModel):
     geometry: EngineGeometryParams = Field(default_factory=EngineGeometryParams)
     propellant: PropellantConfig = Field(default_factory=PropellantConfig)
     cooling: CoolingConfig = Field(default_factory=CoolingConfig)
+    injector: InjectorConfig = Field(default_factory=InjectorConfig)
     material_id: str = "copper_c10200"
     ambient_pressure_Pa: float = Field(101325.0, ge=0.0, le=200_000.0)
 
@@ -69,9 +83,11 @@ class GAConfig(BaseModel):
         "cost_efficiency": 0.05,
         "cooling_effectiveness": 0.10,
         "coolant_pressure_drop": 0.05,
+        "injection_quality": 0.00,
     })
     propellant: PropellantConfig = Field(default_factory=PropellantConfig)
     cooling: CoolingConfig = Field(default_factory=CoolingConfig)
+    injector: InjectorConfig = Field(default_factory=InjectorConfig)
     material_id: str = "copper_c10200"
     ambient_pressure_Pa: float = Field(101325.0, ge=0.0, le=200_000.0)
 
@@ -80,6 +96,7 @@ class UpdateParams(BaseModel):
     geometry: Optional[EngineGeometryParams] = None
     propellant: Optional[PropellantConfig] = None
     cooling: Optional[CoolingConfig] = None
+    injector: Optional[InjectorConfig] = None
     material_id: Optional[str] = None
     ambient_pressure_Pa: Optional[float] = None
 
@@ -87,6 +104,7 @@ class UpdateParams(BaseModel):
 class STLExportRequest(BaseModel):
     geometry: EngineGeometryParams = Field(default_factory=EngineGeometryParams)
     cooling: Optional[CoolingConfig] = None
+    injector: Optional[InjectorConfig] = None
     mode: str = Field("simple", pattern="^(simple|full)$")
     include_injector: bool = True
     resolution: int = Field(128, ge=32, le=256)

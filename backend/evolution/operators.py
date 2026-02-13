@@ -69,6 +69,35 @@ def feasibility_repair(individual, bounds=GENOME_BOUNDS):
                 individual[gi] = avg * 0.7
                 individual[gi + 1] = avg * 1.3
 
+    # Injector gene constraints (genes 25-28)
+    if len(individual) >= 29:
+        # n_rings (gene 25) — round to integer
+        individual[25] = round(individual[25])
+        # elements_per_ring (gene 26) — round to integer
+        individual[26] = round(individual[26])
+
+        # Minimum orifice diameters for SLM printing (0.5mm)
+        individual[27] = max(individual[27], 0.0005)
+        individual[28] = max(individual[28], 0.0005)
+
+        # Total orifice area must not exceed 60% of face area
+        # Face area approximation using chamber radius
+        chamber_r = individual[0] / 2.0  # chamber_diameter / 2
+        face_area = math.pi * chamber_r ** 2
+        n_rings = int(individual[25])
+        base_per_ring = int(individual[26])
+        total_elements = sum(base_per_ring * (k + 1) for k in range(n_rings))
+        fuel_area = total_elements * math.pi * (individual[27] / 2) ** 2
+        ox_area = total_elements * math.pi * (individual[28] / 2) ** 2
+        total_orifice_area = fuel_area + ox_area
+
+        if total_orifice_area > 0.6 * face_area and total_orifice_area > 0:
+            scale = math.sqrt(0.6 * face_area / total_orifice_area)
+            individual[27] *= scale
+            individual[28] *= scale
+            individual[27] = max(individual[27], bounds[27][0])
+            individual[28] = max(individual[28], bounds[28][0])
+
     return individual
 
 

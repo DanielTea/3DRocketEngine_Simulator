@@ -9,6 +9,7 @@ from backend.physics import combustion, gas_dynamics, heat_transfer, structural
 from backend.physics.regen_cooling import compute_regen_cooling, CoolingChannelGeometry
 from backend.physics.effective_properties import compute_effective_r_outer
 from backend.config import G0, ATMOSPHERIC_PRESSURE
+from backend.geometry.injector import generate_injector_layout, compute_injection_physics
 
 
 class SimulationEngine:
@@ -25,7 +26,8 @@ class SimulationEngine:
                  coolant_type: str = "rp1",
                  coolant_inlet_temp: float = 300.0,
                  coolant_inlet_pressure: float = 5_000_000.0,
-                 rib_thickness_factor: float = 0.5):
+                 rib_thickness_factor: float = 0.5,
+                 injector_config=None):
         self.engine = engine
         self.material = material
         self.gamma = gamma
@@ -42,6 +44,9 @@ class SimulationEngine:
         self.coolant_inlet_temp = coolant_inlet_temp
         self.coolant_inlet_pressure = coolant_inlet_pressure
         self.rib_thickness_factor = rib_thickness_factor
+
+        # Injector config
+        self.injector_config = injector_config
 
         # Pre-compute profile
         self._profile = engine.generate_profile()
@@ -113,6 +118,22 @@ class SimulationEngine:
             ht["wall_temp_inner_K"] = cooling_result["T_wall_hot_K"]
             ht["wall_temp_outer_K"] = cooling_result["T_wall_cold_K"]
             ht["max_wall_temp_K"] = cooling_result["max_wall_temp_K"]
+
+        # 5b. Injection physics (if injector enabled)
+        injector_result = None
+        if self.injector_config and getattr(self.injector_config, 'enabled', False):
+            face_x = self._station_x[0]
+            face_radius = self._station_r_inner[0]
+            layout = generate_injector_layout(self.injector_config, face_x, face_radius)
+            injector_result = compute_injection_physics(
+                layout=layout,
+                P_chamber=self.P_chamber,
+                mdot_total=mdot,
+                mixture_ratio=getattr(self.injector_config, 'mixture_ratio', 2.3),
+                Cd=getattr(self.injector_config, 'discharge_coefficient', 0.65),
+                d_fuel=self.injector_config.fuel_orifice_diameter,
+                d_ox=self.injector_config.ox_orifice_diameter,
+            )
 
         # 6. Effective structural properties (topology-inspired)
         effective_r = None
@@ -193,6 +214,16 @@ class SimulationEngine:
             "warnings": warnings,
         }
 
+        # Add injector data if available
+        if injector_result is not None:
+            result["injector"] = injector_result
+            dp_f = injector_result.get("dP_fuel_ratio", 0)
+            dp_o = injector_result.get("dP_ox_ratio", 0)
+            if dp_f < 0.10 or dp_o < 0.10:
+                warnings.append(f"Low injector dP ratio (fuel={dp_f:.2f}, ox={dp_o:.2f}) — combustion instability risk")
+            if dp_f > 0.35 or dp_o > 0.35:
+                warnings.append(f"High injector dP ratio (fuel={dp_f:.2f}, ox={dp_o:.2f}) — excessive feed pressure")
+
         # Add cooling data if available
         if cooling_result is not None:
             result["cooling"] = {
@@ -223,7 +254,8 @@ class SimulationEngine:
                       cooling_channel_geom: CoolingChannelGeometry = None,
                       coolant_mdot: float = None,
                       coolant_type: str = None,
-                      rib_thickness_factor: float = None):
+                      rib_thickness_factor: float = None,
+                      injector_config=None):
         """Hot-update simulation parameters."""
         if engine is not None:
             self.engine = engine
@@ -254,3 +286,5 @@ class SimulationEngine:
             self.coolant_type = coolant_type
         if rib_thickness_factor is not None:
             self.rib_thickness_factor = rib_thickness_factor
+        if injector_config is not None:
+            self.injector_config = injector_config

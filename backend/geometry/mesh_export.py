@@ -3,6 +3,7 @@
 import math
 import numpy as np
 from backend.geometry.parametric_engine import ParametricEngine
+from backend.geometry.injector import generate_injector_layout
 
 
 def profile_to_lathe_data(profile_2d: np.ndarray, num_circumferential: int = 64) -> dict:
@@ -55,7 +56,8 @@ def profile_to_lathe_data(profile_2d: np.ndarray, num_circumferential: int = 64)
     }
 
 
-def export_for_frontend(engine: ParametricEngine, num_circumferential: int = 64) -> dict:
+def export_for_frontend(engine: ParametricEngine, num_circumferential: int = 64,
+                        injector_config=None) -> dict:
     """Export full engine mesh data for the frontend."""
     profile = engine.generate_profile()
 
@@ -68,7 +70,7 @@ def export_for_frontend(engine: ParametricEngine, num_circumferential: int = 64)
     throat_idx = np.argmin(profile[:, 1])
     wall_thickness = profile[:, 2] - profile[:, 1]
 
-    return {
+    result = {
         "inner_wall": inner_mesh,
         "outer_wall": outer_mesh,
         "profile_2d": inner_profile.tolist(),
@@ -83,3 +85,21 @@ def export_for_frontend(engine: ParametricEngine, num_circumferential: int = 64)
         "station_wall_thickness": wall_thickness.tolist(),
         "station_zone": profile[:, 3].astype(int).tolist(),
     }
+
+    # Add injector orifice data if enabled
+    if injector_config and getattr(injector_config, 'enabled', False):
+        face_x = profile[0, 0]
+        face_radius = profile[0, 1]
+        layout = generate_injector_layout(injector_config, face_x, face_radius)
+        result["injector_orifices"] = [
+            {
+                "y": float(o.y_center),
+                "z": float(o.z_center),
+                "radius": float(o.radius),
+                "type": o.orifice_type,
+                "ring": o.ring_index,
+            }
+            for o in layout.orifices
+        ]
+
+    return result
