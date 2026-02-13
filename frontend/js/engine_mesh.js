@@ -207,15 +207,14 @@ function createInjectorFaceGeometry(x, rInner, segments) {
 function createInjectorFaceWithOrifices(x, faceRadius, orifices, segments) {
     const group = new THREE.Group();
 
-    // Determine required resolution from smallest orifice
+    // Determine required resolution from smallest orifice — match STL grid
     let minOrificeRadius = faceRadius;
     for (const o of orifices) {
         if (o.radius < minOrificeRadius) minOrificeRadius = o.radius;
     }
-    // Cell size should be ~half the orifice diameter for clear holes
-    const cellTarget = minOrificeRadius;  // = half orifice diameter
-    const nRadial = Math.min(120, Math.max(40, Math.ceil(faceRadius / cellTarget)));
-    const nAngular = Math.min(512, Math.max(segments, Math.ceil(2 * Math.PI * faceRadius / cellTarget)));
+    const cellTarget = minOrificeRadius * 0.75;
+    const nRadial = Math.min(200, Math.max(80, Math.ceil(faceRadius / cellTarget)));
+    const nAngular = Math.min(800, Math.max(segments, Math.ceil(2 * Math.PI * faceRadius / cellTarget)));
 
     // Build polar grid face with holes
     const positions = [];
@@ -301,28 +300,25 @@ function createInjectorFaceWithOrifices(x, faceRadius, orifices, segments) {
     group.add(new THREE.Mesh(faceGeo, faceMat));
     console.log(`[EngineMesh] Injector face: ${nRadial}×${nAngular} grid, ${orifices.length} orifices, faceR=${faceRadius.toFixed(4)}, minOrifR=${minOrificeRadius.toFixed(5)}`);
 
-    // Colored orifice markers — placed in front of face, bright & emissive
+    // Colored orifice ring outlines — match actual hole size for STL consistency
     const fuelColor = new THREE.Color(0x2299ff);
     const oxColor = new THREE.Color(0xff6622);
-    const circleSegments = 24;
-    // Minimum display radius: 3% of face to be visible at any zoom
-    const minDisplayRadius = faceRadius * 0.03;
+    const ringSegments = 32;
 
     for (const o of orifices) {
-        const displayR = Math.max(o.radius * 2.0, minDisplayRadius);
+        const r = o.radius;
         const isFuel = o.type === 'fuel';
 
-        // Bright emissive filled circle in front of face
-        const circGeo = new THREE.CircleGeometry(displayR, circleSegments);
-        const circMat = new THREE.MeshBasicMaterial({
+        // Thin ring outline at actual orifice size
+        const ringGeo = new THREE.RingGeometry(r * 0.7, r * 1.0, ringSegments);
+        const ringMat = new THREE.MeshBasicMaterial({
             color: isFuel ? fuelColor : oxColor,
             side: THREE.DoubleSide,
         });
-        const circMesh = new THREE.Mesh(circGeo, circMat);
-        // Place well in front of the face (negative X = towards chamber viewer)
-        circMesh.position.set(x - 0.001, o.y, o.z);
-        circMesh.rotation.y = Math.PI / 2;
-        group.add(circMesh);
+        const ringMesh = new THREE.Mesh(ringGeo, ringMat);
+        ringMesh.position.set(x - 0.0005, o.y, o.z);
+        ringMesh.rotation.y = Math.PI / 2;
+        group.add(ringMesh);
     }
 
     return group;

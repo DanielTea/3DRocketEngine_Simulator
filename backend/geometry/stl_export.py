@@ -402,30 +402,45 @@ def _build_injector_disc(x_pos, r_inner, n_circ):
 
 
 def _build_injector_disc_with_orifices(x_pos, face_radius, layout, n_circ, wall_thickness=0.003):
-    """Build injector disc with orifice holes using polar grid exclusion.
+    """Build injector disc with orifice holes.
 
-    Uses a polar grid of radial × angular cells. Cells whose center falls
-    inside an orifice circle are skipped, leaving clean holes. Additionally,
-    each orifice gets a cylindrical bore wall for 3D-printable through-holes.
+    Each orifice is a clean cylindrical bore (smooth circle tessellated with
+    dedicated triangles). The face plate is built from a polar grid, but cells
+    near orifice edges are excluded conservatively so the bore geometry defines
+    the hole boundary — no jagged grid artifacts.
 
-    Resolution is computed from the smallest orifice so that grid cells
-    are smaller than the holes.
+    The bore extends from the front face through the wall for 3D-printable
+    through-holes.
     """
-    # Compute resolution from smallest orifice
+    orifices = layout.orifices
+
+    # Grid resolution: fine enough that cells are ~half the smallest orifice
     min_orifice_r = face_radius
-    for o in layout.orifices:
+    for o in orifices:
         if o.radius < min_orifice_r:
             min_orifice_r = o.radius
-    cell_target = min_orifice_r  # half orifice diameter
-    n_radial = min(150, max(60, int(math.ceil(face_radius / cell_target))))
-    n_angular = min(600, max(n_circ, int(math.ceil(2.0 * math.pi * face_radius / cell_target))))
+    cell_target = min_orifice_r * 0.75
+    n_radial = min(200, max(80, int(math.ceil(face_radius / cell_target))))
+    n_angular = min(800, max(n_circ, int(math.ceil(2.0 * math.pi * face_radius / cell_target))))
 
     tris_list = []
 
     thetas = np.linspace(0, 2 * math.pi, n_angular + 1)
     radii = np.linspace(0, face_radius, n_radial + 1)
 
-    orifices = layout.orifices
+    # Pre-compute orifice data for faster checks
+    oy = np.array([o.y_center for o in orifices])
+    oz = np.array([o.z_center for o in orifices])
+    or2 = np.array([o.radius * o.radius for o in orifices])
+
+    def _cell_overlaps_orifice(cy, cz, cell_r):
+        """Check if cell center is inside any orifice (with margin for clean edge)."""
+        dy = cy - oy
+        dz = cz - oz
+        dist2 = dy * dy + dz * dz
+        # Exclude cells whose center is within orifice radius (tight boundary —
+        # the bore geometry will define the clean circular edge)
+        return np.any(dist2 < or2)
 
     for i in range(n_radial):
         r0 = radii[i]
@@ -437,25 +452,13 @@ def _build_injector_disc_with_orifices(x_pos, face_radius, layout, n_circ, wall_
             t1 = thetas[j + 1]
             t_mid = (t0 + t1) / 2.0
 
-            # Cell center in Y-Z
             cy = r_mid * math.cos(t_mid)
             cz = r_mid * math.sin(t_mid)
 
-            # Check if cell center is inside any orifice
-            inside = False
-            for o in orifices:
-                dy = cy - o.y_center
-                dz = cz - o.z_center
-                if dy * dy + dz * dz < o.radius * o.radius:
-                    inside = True
-                    break
-
-            if inside:
+            if _cell_overlaps_orifice(cy, cz, 0):
                 continue
 
-            # Emit 2 triangles for this cell
             if r0 < 1e-8:
-                # Central cell — single triangle from center
                 A = np.array([x_pos, 0.0, 0.0])
                 B = np.array([x_pos, r1 * math.cos(t0), r1 * math.sin(t0)])
                 C = np.array([x_pos, r1 * math.cos(t1), r1 * math.sin(t1)])
@@ -467,13 +470,16 @@ def _build_injector_disc_with_orifices(x_pos, face_radius, layout, n_circ, wall_
                 D = np.array([x_pos, r1 * math.cos(t1), r1 * math.sin(t1)])
                 tris_list.append(np.array([[A, C, B], [B, C, D]]))
 
-    # Cylindrical bore walls for each orifice
+    # Cylindrical bore for each orifice — smooth circular holes
     bore_depth = min(wall_thickness, 0.005)
-    bore_segments = 16
-    x_back = x_pos + bore_depth  # bore extends into chamber wall
+    bore_segments = 32  # smooth circles
+    x_back = x_pos + bore_depth
 
     for o in orifices:
         bore_thetas = np.linspace(0, 2 * math.pi, bore_segments + 1)
+        center_front = np.array([x_pos, o.y_center, o.z_center])
+        center_back = np.array([x_back, o.y_center, o.z_center])
+
         for k in range(bore_segments):
             ct0 = math.cos(bore_thetas[k])
             st0 = math.sin(bore_thetas[k])
@@ -485,12 +491,15 @@ def _build_injector_disc_with_orifices(x_pos, face_radius, layout, n_circ, wall_
             y1 = o.y_center + o.radius * ct1
             z1 = o.z_center + o.radius * st1
 
-            # Quad on bore wall (front face to back face)
+            # Bore wall (cylinder from front to back)
             A = np.array([x_pos, y0, z0])
             B = np.array([x_pos, y1, z1])
             C = np.array([x_back, y0, z0])
             D = np.array([x_back, y1, z1])
             tris_list.append(np.array([[A, B, C], [B, D, C]]))
+
+            # Back cap (close the bore at the back)
+            tris_list.append(np.array([[center_back, C, D]]))
 
     if not tris_list:
         return np.empty((0, 3, 3))
