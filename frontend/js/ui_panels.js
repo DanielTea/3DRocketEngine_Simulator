@@ -433,6 +433,13 @@ export function updatePerformanceReadout(data) {
         setValue('val-inj-quality', formatFixed(injector.atomization_quality * 100, 1) + '%');
         setValue('val-inj-stability', formatFixed(injector.stability_margin * 100, 1) + '%');
     }
+    // Combustion efficiency (coupled to injection)
+    if (injector.eta_cstar !== undefined) {
+        setValue('val-inj-eta', formatFixed(injector.eta_cstar * 100, 1) + '%');
+        setValue('val-inj-lstar', formatFixed((injector.L_star_m || 0) * 100, 1) + ' cm');
+    } else if (perf.combustion_efficiency !== undefined) {
+        setValue('val-inj-eta', formatFixed(perf.combustion_efficiency * 100, 1) + '%');
+    }
 
     // Warnings
     const warnings = data.warnings || [];

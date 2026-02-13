@@ -65,6 +65,46 @@ def exit_velocity(Isp: float) -> float:
     return Isp * G0
 
 
+def combustion_efficiency(atomization_quality: float, stability_margin: float,
+                          momentum_ratio: float, chamber_L_star: float = None) -> float:
+    """Compute combustion efficiency eta_c* from injection and chamber parameters.
+
+    Combines:
+      - Atomization quality (We-based, 0-1): poor spray → incomplete vaporization
+      - Stability margin (Crocco dP/Pc criterion, 0-1): unstable combustion
+      - Momentum ratio (ideal ≈ 1.0): poor impingement → uneven mixing
+      - Chamber L* (optional): short residence time → incomplete reaction
+
+    Returns eta_c* in range [0.75, 0.99]. Well-designed injectors with good
+    chambers achieve 0.95-0.99; poor designs drop to 0.80-0.85.
+    """
+    # Atomization contribution: poor atomization caps efficiency
+    # atomization_quality 0→0.80, 1.0→1.0
+    eta_atom = 0.80 + 0.20 * min(atomization_quality, 1.0)
+
+    # Stability contribution: unstable combustion wastes energy
+    # stability_margin 0→0.85, 1.0→1.0
+    eta_stab = 0.85 + 0.15 * min(stability_margin, 1.0)
+
+    # Mixing uniformity from momentum ratio: ideal MR=1.0
+    # deviation from 1.0 penalizes mixing
+    mr_deviation = abs(momentum_ratio - 1.0)
+    eta_mix = max(0.85, 1.0 - 0.15 * min(mr_deviation, 1.0))
+
+    # Chamber L* contribution (if provided)
+    # L* < 0.5m → incomplete combustion, L* > 1.0m → fully complete
+    eta_lstar = 1.0
+    if chamber_L_star is not None:
+        if chamber_L_star < 1.0:
+            eta_lstar = max(0.80, 0.80 + 0.20 * chamber_L_star)
+
+    # Combined efficiency: product of independent factors
+    eta = eta_atom * eta_stab * eta_mix * eta_lstar
+
+    # Clamp to physical range
+    return max(0.75, min(0.99, eta))
+
+
 def compute_chamber_performance(gamma: float, molecular_weight: float,
                                 T_chamber: float, P_chamber: float,
                                 A_throat: float, expansion_ratio: float,

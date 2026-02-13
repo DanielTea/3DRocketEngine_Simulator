@@ -60,11 +60,64 @@ class SimulationEngine:
 
         Returns a comprehensive dict with all simulation results.
         """
+        import math
         R_spec = combustion.specific_gas_constant(self.molecular_weight)
 
-        # 1. Combustion chamber performance
-        c_star = combustion.characteristic_velocity(self.gamma, R_spec, self.T_chamber)
+        # 1. Ideal combustion: c*_ideal, then apply injection efficiency
+        c_star_ideal = combustion.characteristic_velocity(self.gamma, R_spec, self.T_chamber)
+
+        # 1b. Injection physics and combustion efficiency coupling
+        # Run injection first so η_c* can reduce c* before computing mdot
+        eta_cstar = 0.98  # default: near-ideal if no injector modeled
+        injector_result = None
+        if self.injector_config and getattr(self.injector_config, 'enabled', False):
+            face_x = self._station_x[0]
+            face_radius = self._station_r_inner[0]
+            layout = generate_injector_layout(self.injector_config, face_x, face_radius)
+
+            # Initial mdot estimate for injection calc (use ideal c*)
+            mdot_est = combustion.mass_flow_rate(self.P_chamber, self.engine.throat_area, c_star_ideal)
+
+            injector_result = compute_injection_physics(
+                layout=layout,
+                P_chamber=self.P_chamber,
+                mdot_total=mdot_est,
+                mixture_ratio=getattr(self.injector_config, 'mixture_ratio', 2.3),
+                Cd=getattr(self.injector_config, 'discharge_coefficient', 0.65),
+                d_fuel=self.injector_config.fuel_orifice_diameter,
+                d_ox=self.injector_config.ox_orifice_diameter,
+            )
+
+            # Compute combustion efficiency from injection quality
+            # Chamber L* = V_chamber / A_throat (characteristic length)
+            chamber_volume = math.pi * (self.engine.chamber_diameter / 2) ** 2 * self.engine.chamber_length
+            L_star = chamber_volume / self.engine.throat_area if self.engine.throat_area > 0 else 1.0
+            eta_cstar = combustion.combustion_efficiency(
+                atomization_quality=injector_result.get("atomization_quality", 0.5),
+                stability_margin=injector_result.get("stability_margin", 0.5),
+                momentum_ratio=injector_result.get("momentum_ratio", 1.0),
+                chamber_L_star=L_star,
+            )
+            injector_result["eta_cstar"] = float(eta_cstar)
+            injector_result["L_star_m"] = float(L_star)
+
+        # Apply combustion efficiency: c*_actual = η_c* × c*_ideal
+        c_star = c_star_ideal * eta_cstar
         mdot = combustion.mass_flow_rate(self.P_chamber, self.engine.throat_area, c_star)
+
+        # Update injection result with actual mdot (small correction)
+        if injector_result is not None and abs(mdot - mdot_est) / max(mdot, 1e-10) > 0.01:
+            injector_result = compute_injection_physics(
+                layout=layout,
+                P_chamber=self.P_chamber,
+                mdot_total=mdot,
+                mixture_ratio=getattr(self.injector_config, 'mixture_ratio', 2.3),
+                Cd=getattr(self.injector_config, 'discharge_coefficient', 0.65),
+                d_fuel=self.injector_config.fuel_orifice_diameter,
+                d_ox=self.injector_config.ox_orifice_diameter,
+            )
+            injector_result["eta_cstar"] = float(eta_cstar)
+            injector_result["L_star_m"] = float(L_star)
 
         # 2. Nozzle flow field
         throat_r = self.engine.throat_diameter / 2
@@ -119,22 +172,6 @@ class SimulationEngine:
             ht["wall_temp_outer_K"] = cooling_result["T_wall_cold_K"]
             ht["max_wall_temp_K"] = cooling_result["max_wall_temp_K"]
 
-        # 5b. Injection physics (if injector enabled)
-        injector_result = None
-        if self.injector_config and getattr(self.injector_config, 'enabled', False):
-            face_x = self._station_x[0]
-            face_radius = self._station_r_inner[0]
-            layout = generate_injector_layout(self.injector_config, face_x, face_radius)
-            injector_result = compute_injection_physics(
-                layout=layout,
-                P_chamber=self.P_chamber,
-                mdot_total=mdot,
-                mixture_ratio=getattr(self.injector_config, 'mixture_ratio', 2.3),
-                Cd=getattr(self.injector_config, 'discharge_coefficient', 0.65),
-                d_fuel=self.injector_config.fuel_orifice_diameter,
-                d_ox=self.injector_config.ox_orifice_diameter,
-            )
-
         # 6. Effective structural properties (topology-inspired)
         effective_r = None
         if self.cooling_enabled:
@@ -184,6 +221,8 @@ class SimulationEngine:
                 "exit_pressure_Pa": float(P_exit),
                 "exit_mach": float(M_exit),
                 "characteristic_velocity_m_s": float(c_star),
+                "c_star_ideal_m_s": float(c_star_ideal),
+                "combustion_efficiency": float(eta_cstar),
                 "thrust_coefficient": float(Cf),
                 "total_mass_kg": float(total_mass),
                 "thrust_to_weight": float(thrust / (total_mass * G0)) if total_mass > 0 else 0,

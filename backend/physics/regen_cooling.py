@@ -149,9 +149,12 @@ def compute_regen_cooling(
             dT_coolant = Q * dA / (coolant_mdot * cp_c) if (coolant_mdot * cp_c) > 0 else 0.0
             T_coolant[i - 1] = T_c + dT_coolant
 
-            # Pressure drop (Blasius friction factor for turbulent flow)
-            f = 0.046 * max(Re_c, 100.0) ** (-0.2)
-            dP = f * (dx / max(D_h, 1e-6)) * 0.5 * rho_c * v_c ** 2
+            # Pressure drop: McAdams Fanning friction factor, converted to Darcy
+            # f_Fanning = 0.046 * Re^(-0.2), f_Darcy = 4 * f_Fanning
+            # ΔP = f_Darcy * (L/D_h) * ½ρv²
+            f_fanning = 0.046 * max(Re_c, 100.0) ** (-0.2)
+            f_darcy = 4.0 * f_fanning
+            dP = f_darcy * (dx / max(D_h, 1e-6)) * 0.5 * rho_c * v_c ** 2
             coolant_pressure[i - 1] = coolant_pressure[i] - dP
 
     total_pressure_drop = coolant_pressure[-1] - coolant_pressure[0]
